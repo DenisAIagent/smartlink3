@@ -171,20 +171,50 @@ All SmartLinks are fully responsive and optimized for:
 
 ## 🚀 Deployment
 
-### Backend Deployment
-The backend can be deployed to any Node.js hosting platform:
-- Railway
+### Railway Deployment (Recommended)
+
+1. **Fork or clone this repository**
+
+2. **Connect to Railway**:
+   - Go to [Railway.app](https://railway.app)
+   - Click "Deploy from GitHub repo"
+   - Select the `smartlink3` repository
+
+3. **Set Environment Variables**:
+   ```
+   MONGO_URI=your-mongodb-connection-string
+   NODE_ENV=production
+   JWT_SECRET=your-super-secret-jwt-key
+   PORT=5001
+   ```
+
+4. **Deploy**:
+   - Railway will automatically detect the Node.js app
+   - The `railway.json` configuration will handle the build and start commands
+   - Your SmartLink platform will be live at `https://your-app.railway.app`
+
+### Other Deployment Options
+
+**Backend Deployment**:
+- Railway (recommended)
 - Heroku
 - Vercel
 - AWS
 - Google Cloud
 
-### Frontend Deployment
-The frontend is a standard React application and can be deployed to:
+**Frontend Deployment**:
 - Netlify
 - Vercel
 - AWS S3 + CloudFront
 - Firebase Hosting
+
+### Environment Configuration
+
+Copy `.env.example` to `.env` and configure:
+- `MONGO_URI`: Your MongoDB connection string
+- `JWT_SECRET`: Secure random string for JWT tokens
+- `NODE_ENV`: Set to "production" for deployment
+- Analytics IDs (optional)
 
 ## 🛠️ Development
 
