@@ -1,81 +1,72 @@
+// backend/middleware/auth.js
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const ErrorResponse = require('../utils/errorResponse');
-const asyncHandler = require('./asyncHandler');
 
-// Middleware de protection des routes
-exports.protect = asyncHandler(async (req, res, next) => {
-  let token;
-
-  // Vérifier le header Authorization
-  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-    token = req.headers.authorization.split(' ')[1];
-  }
-  // Vérifier les cookies
-  else if (req.cookies && req.cookies.token) {
-    token = req.cookies.token;
-  }
-
-  // Mode bypass pour développement
-  const bypassAuth = process.env.NODE_ENV === 'development' || process.env.VITE_BYPASS_AUTH === 'true';
-  
-  if (token === 'dev-bypass-token' || bypassAuth) {
-    console.log('🔓 Auth: Bypass activé pour développement/production');
+// Middleware d'authentification
+const auth = async (req, res, next) => {
+  try {
+    // Bypass en développement
+    const bypassAuth = process.env.NODE_ENV === 'development' || process.env.BYPASS_AUTH === 'true';
     
-    try {
+    if (bypassAuth) {
       // Créer ou récupérer l'utilisateur de développement
       let devUser = await User.findOne({ email: 'denis@mdmcmusicads.com' });
-      
       if (!devUser) {
-        console.log('👤 Création utilisateur de développement...');
         devUser = await User.create({
           username: 'denis',
           email: 'denis@mdmcmusicads.com',
           role: 'admin',
-          password: 'dev-password-123' // Mot de passe factice
+          password: 'dev-password-123'
         });
-        console.log('👤 Utilisateur de développement créé:', devUser._id);
-      } else {
-        console.log('👤 Utilisateur de développement récupéré:', devUser._id);
       }
-
-      console.log('🔍 req.user._id défini à:', devUser._id);
+      
       req.user = devUser;
+      console.log('🔓 BYPASS_AUTH activé - Utilisateur dev:', devUser.email);
       return next();
-    } catch (error) {
-      console.error('❌ Erreur création utilisateur dev:', error);
-      return next(new ErrorResponse('Erreur d\'authentification en mode développement', 500));
     }
-  }
 
-  // Vérifier si token existe
-  if (!token) {
-    return next(new ErrorResponse('Accès non autorisé, token manquant', 401));
-  }
+    // Récupérer le token depuis l'en-tête Authorization
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        error: 'Accès refusé. Aucun token fourni.'
+      });
+    }
 
-  try {
     // Vérifier le token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    // Récupérer l'utilisateur
-    req.user = await User.findById(decoded.id);
-
-    if (!req.user) {
-      return next(new ErrorResponse('Utilisateur non trouvé', 404));
+    const user = await User.findById(decoded.id).select('-password');
+    
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Token invalide. Utilisateur non trouvé.'
+      });
     }
 
+    req.user = user;
     next();
   } catch (error) {
-    return next(new ErrorResponse('Token invalide', 401));
+    console.error('Erreur auth middleware:', error);
+    res.status(401).json({
+      success: false,
+      error: 'Token invalide.'
+    });
   }
-});
-
-// Middleware d'autorisation par rôle
-exports.authorize = (...roles) => {
-  return (req, res, next) => {
-    if (!roles.includes(req.user.role)) {
-      return next(new ErrorResponse(`Rôle ${req.user.role} non autorisé`, 403));
-    }
-    next();
-  };
 };
+
+// Middleware pour vérifier le rôle admin
+const adminOnly = (req, res, next) => {
+  if (req.user && req.user.role === 'admin') {
+    next();
+  } else {
+    res.status(403).json({
+      success: false,
+      error: 'Accès refusé. Droits administrateur requis.'
+    });
+  }
+};
+
+module.exports = { auth, adminOnly };

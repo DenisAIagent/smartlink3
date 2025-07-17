@@ -2,10 +2,7 @@
 
 // Charger les variables d'environnement
 if (process.env.NODE_ENV !== 'production') {
-  // Si .env est à la racine du projet (un niveau au-dessus de src)
   require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
-  // Si .env est dans le même dossier que package.json (racine du backend)
-  // require('dotenv').config(); // Cela suppose que le CWD est la racine du backend
 }
 
 const express = require('express');
@@ -13,26 +10,11 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const morgan = require('morgan');
-const path = require('path'); // Utile pour construire des chemins
+const path = require('path');
 
-// Importer la classe ErrorResponse et le gestionnaire d'erreurs global
-// CORRIGÉ: Chemin pour remonter du dossier 'src' vers 'utils'
-const ErrorResponse = require('../utils/errorResponse');
-// CORRIGÉ: Chemin pour remonter du dossier 'src' vers 'middleware' (si vous avez un errorHandler séparé)
-// const errorHandler = require('../middleware/errorHandler');
-
-// --- Importer vos fichiers de routes ---
-// CORRIGÉ: Chemins pour remonter du dossier 'src' vers 'routes'
-const authRoutes = require('../routes/auth.routes');
-const artistRoutes = require('../routes/artists.routes');
+// Importer les routes SmartLink
 const smartlinkRoutes = require('../routes/smartlink.routes');
 const smartlinkPublicRoutes = require('../routes/smartlink.public.routes');
-const uploadRoutes = require('../routes/uploadRoutes');
-const wordpressRoutes = require('../routes/wordpress.routes');
-const analyticsRoutes = require('../routes/analytics');
-
-// Ajoutez d'autres routeurs ici selon votre projet
-// const userRoutes = require('../routes/user.routes.js');
 
 const app = express();
 
@@ -71,10 +53,7 @@ if (process.env.NODE_ENV === 'development') {
     origin: [
       process.env.FRONTEND_URL || 'http://localhost:3000',
       'http://localhost:3001',
-      'http://localhost:3002',
-      'http://192.168.1.236:3000',
-      'http://192.168.1.236:3001',
-      'http://192.168.1.236:3002'
+      'http://localhost:3002'
     ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -87,7 +66,7 @@ if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
@@ -95,46 +74,32 @@ app.use(cookieParser());
 // Ces routes doivent être AVANT les routes API pour intercepter les requêtes
 app.use('/', smartlinkPublicRoutes);
 
-// --- Monter les Routeurs ---
-// ✅ CORRECTION: Toutes les routes maintenant sur /api/v1
-app.use('/api/v1/auth', authRoutes);
-app.use('/api/v1/artists', artistRoutes);
+// --- Monter les Routeurs SmartLink ---
 app.use('/api/v1/smartlinks', smartlinkRoutes);
-app.use('/api/v1/wordpress', wordpressRoutes);
-app.use('/api/wordpress', wordpressRoutes); // ⭐ Ajoutez cette ligne
-app.use('/api/v1/upload', uploadRoutes);
-app.use('/api/v1/analytics', analyticsRoutes);
-app.use("/api/v1/reviews", require("../routes/reviews.routes"));
-app.use("/api/simulator", require("../routes/simulator.routes"));
 
-// ✅ CORRECTION: Route principale API v1
+// --- Route principale API v1 ---
 app.get('/api/v1', (req, res) => {
   res.status(200).json({ 
     success: true, 
-    message: 'API MDMC Music Ads v1 est opérationnelle !',
+    message: 'SmartLink API v1 est opérationnelle !',
     version: '1.0.0',
     endpoints: {
-      auth: '/api/v1/auth',
-      artists: '/api/v1/artists',
       smartlinks: '/api/v1/smartlinks',
-      upload: '/api/v1/upload',
-      wordpress: '/api/v1/wordpress',
-      reviews: '/api/v1/reviews'
+      public: '/s/:slug or /:shortId'
     }
   });
 });
 
-// ✅ CORRECTION: Maintenir compatibilité ancienne route
+// --- Route de test ---
 app.get('/api', (req, res) => {
   res.status(200).json({ 
     success: true, 
-    message: 'API MDMC Music Ads est opérationnelle !',
+    message: 'SmartLink API est opérationnelle !',
     note: 'Utilisez /api/v1 pour les nouvelles requêtes'
   });
 });
 
 // --- Middleware de Gestion d'Erreurs Global ---
-// (Logique du errorHandler comme fournie précédemment, utilisant ErrorResponse)
 app.use((err, req, res, next) => {
   let error = { ...err };
   error.message = err.message;
@@ -147,29 +112,39 @@ app.use((err, req, res, next) => {
   }
   console.error('------------------------------------');
 
+  // Erreurs Mongoose
   if (err.name === 'CastError' && err.kind === 'ObjectId') {
     const message = `Ressource non trouvée. L'identifiant fourni est invalide: ${err.value}`;
-    error = new ErrorResponse(message, 404);
+    error.statusCode = 404;
+    error.message = message;
   }
+  
   if (err.code === 11000) {
     let field = Object.keys(err.keyValue)[0];
     let value = err.keyValue[field];
     field = field.charAt(0).toUpperCase() + field.slice(1);
     const message = `Le champ '${field}' avec la valeur '${value}' existe déjà. Cette valeur doit être unique.`;
-    error = new ErrorResponse(message, 400);
+    error.statusCode = 400;
+    error.message = message;
   }
+  
   if (err.name === 'ValidationError') {
     const messages = Object.values(err.errors).map(val => val.message);
     const message = `Données invalides: ${messages.join('. ')}`;
-    error = new ErrorResponse(message, 400);
+    error.statusCode = 400;
+    error.message = message;
   }
+  
   if (err.name === 'JsonWebTokenError') {
     const message = 'Authentification échouée (token invalide). Veuillez vous reconnecter.';
-    error = new ErrorResponse(message, 401);
+    error.statusCode = 401;
+    error.message = message;
   }
+  
   if (err.name === 'TokenExpiredError') {
     const message = 'Votre session a expiré. Veuillez vous reconnecter.';
-    error = new ErrorResponse(message, 401);
+    error.statusCode = 401;
+    error.message = message;
   }
 
   res.status(error.statusCode || 500).json({
@@ -186,7 +161,9 @@ const startServer = async () => {
   const server = app.listen(
     PORT,
     () => {
-      console.log(`Serveur démarré en mode ${process.env.NODE_ENV || 'inconnu (probablement development)'} sur le port ${PORT}`);
+      console.log(`🚀 SmartLink API démarré en mode ${process.env.NODE_ENV || 'development'} sur le port ${PORT}`);
+      console.log(`📱 Public SmartLinks: http://localhost:${PORT}/s/:slug`);
+      console.log(`🔧 Admin API: http://localhost:${PORT}/api/v1/smartlinks`);
     }
   );
   
